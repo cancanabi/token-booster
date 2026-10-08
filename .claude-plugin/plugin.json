@@ -1,0 +1,16 @@
+{
+  "name": "token-booster",
+  "version": "5.0.1",
+  "description": "Local context tools for Claude Code: optional Read deduplication, conservative test-output compaction, bounded repository search and usage analysis.",
+  "author": {
+    "name": "Token Booster contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "token-efficiency",
+    "context-budget",
+    "coding",
+    "offline"
+  ]
+}

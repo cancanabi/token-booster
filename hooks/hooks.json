@@ -1,0 +1,50 @@
+{
+  "description": "Silent by default. Opt-in Bash compaction (TOKEN_BOOSTER_AUTO=1) and Read metadata cache (TOKEN_BOOSTER_READ_CACHE=1); single-use blocking requires TOKEN_BOOSTER_READ_BLOCK=1.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/read_cache_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/read_cache_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/read_cache_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
