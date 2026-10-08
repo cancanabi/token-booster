@@ -1,0 +1,61 @@
+name: Import Token Booster release
+
+on:
+  push:
+    paths:
+      - token-booster-github-ready.zip
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: token-booster-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract reviewed source archive
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import stat
+          import zipfile
+
+          archive = Path("token-booster-github-ready.zip")
+          if not archive.exists():
+              raise SystemExit("Upload token-booster-github-ready.zip first.")
+
+          with zipfile.ZipFile(archive) as package:
+              entries = [item for item in package.infolist() if not item.is_dir()]
+              if len(entries) > 100 or sum(item.file_size for item in entries) > 3_000_000:
+                  raise SystemExit("Archive exceeds allowed size or file count.")
+              for item in entries:
+                  name = PurePosixPath(item.filename)
+                  if not name.parts or name.parts[0] != "token-booster":
+                      raise SystemExit(f"Unexpected archive entry: {item.filename!r}")
+                  if any(part in ("..", ".") for part in name.parts):
+                      raise SystemExit("Unsafe archive path.")
+                  if (item.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
+                      raise SystemExit("Symlinks are not allowed.")
+                  relative = Path(*name.parts[1:])
+                  if str(relative) == ".github/workflows/import-archive.yml":
+                      raise SystemExit("Cannot overwrite bootstrap workflow.")
+                  destination = Path.cwd() / relative
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  destination.write_bytes(package.read(item))
+          archive.unlink()
+          PY
+      - name: Commit source files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Import Token Booster 5.0.1 source"
+          git push
