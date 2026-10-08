@@ -1,125 +1,122 @@
 # Token Booster
 
-Local context tooling for Claude Code workflows.
+**Less context noise for coding agents. More relevant code in the window.**
 
-Token Booster helps keep repository exploration and test output manageable. It offers
-source discovery, bounded context selection, opt-in Read deduplication and conservative
-Bash output compression. The local CLI and test suite work without a Claude account.
+An open-source, Python-based toolkit for exploring large repositories, selecting useful source previews under a context budget, and taming noisy tool output. It includes **optional, conservative hooks for Claude Code**.
 
-**Status:** experimental integration. The code has offline tests, but has not been
-validated against a live, authenticated Claude Code session. No real-world Claude
-token savings or cost reductions are claimed.
+[Get started](#try-it-in-60-seconds) · [Features](#what-it-does) · [Benchmarks](#what-the-tests-actually-show) · [Claude Code setup](#optional-claude-code-integration) · [Contribute](#help-test-it-in-real-projects)
 
-## Features
+> **Experimental project.** The offline tools are tested, but the Claude Code integration has not yet been validated in an authenticated live session. **Actual model-token or cost savings have not been measured.**
 
-| Tool | Purpose | Default behavior |
-| --- | --- | --- |
-| Source discovery | BM25-style ranking of eligible project files | Explicit CLI invocation |
-| Context planner | Exact bounded 0/1 selection using a byte budget | Explicit CLI invocation |
-| Source outline | Lists structural symbols without dumping entire files | Explicit CLI invocation |
-| Read monitor | Tracks repeated full-file Reads using content fingerprints | Disabled |
-| Read blocker | Denies one identical repeated Read per unchanged file/session | Disabled; experimental |
-| Bash output compaction | Trims large successful test logs when safe to do so | Disabled |
-| Usage reports | Aggregates usage metadata from selected JSONL transcripts | Explicit CLI invocation |
+## The problem
 
-All automatic behavior is opt-in. The plugin does not make network requests or
-require a separate API key.
+Coding agents can spend context on repetitive or low-value information:
 
-## Requirements
+- Reading the same unchanged file again.
+- Receiving hundreds of nearly identical successful test lines.
+- Searching broadly when only a few files matter.
+- Pulling too much source text into a limited context window.
 
-- Python 3.10 or newer
-- Linux, macOS or WSL for the Read-cache locking mechanism (`fcntl`)
-- Claude Code only when using the plugin hooks or slash commands; **not** required
-  for offline analysis and tests
+Token Booster provides small, inspectable tools to **measure and reduce this kind of noise**. Automatic changes to Claude Code tool output are **off by default**.
 
-## Quick start (no Claude account needed)
+## Try it in 60 seconds
 
-From the repository root:
+**No Claude account, API key, or paid service is needed for the offline tools.** You need Python 3.10+.
 
 ```bash
+git clone https://github.com/cancanabi/token-booster.git
+cd token-booster
+
+# Run the local tests
 python3 -m unittest discover -s tests -q
+
+# See what the toolkit detects
 python3 scripts/tb.py doctor
-python3 scripts/tb.py map . --limit 20
+
+# Find likely relevant files
 python3 scripts/tb.py rank "authentication bug" --root . --limit 10
+
+# Make a bounded context plan
 python3 scripts/tb.py plan "authentication bug" --root . --budget-bytes 2500
 ```
 
-To run the local synthetic benchmark:
+Try `rank` and `plan` with a different query against a project you control. Note that project scanning is not a secret detector; review [security limitations](SECURITY.md) before using it on sensitive code.
+
+## What it does
+
+| Tool | Why it's useful | Available without Claude? |
+| --- | --- | --- |
+| **Relevance search** | BM25-style ranking helps find likely relevant files before reading everything. | Yes |
+| **Context planner** | Solves a bounded 0/1 selection problem to maximize defined relevance scores within a UTF-8 byte budget. | Yes |
+| **Code outline** | Lists symbols and structural information instead of dumping entire files. | Yes |
+| **Log compressor** | Reduces repetitive diagnostic text when invoked explicitly; optional Claude Code hook for eligible successful Bash test output. | Yes (CLI) |
+| **Read monitor** | Uses content fingerprints to spot repeated, unchanged full-file reads. | Claude Code hook |
+| **Read blocker** | Can stop *one* identical unchanged reread per session, then allows another attempt; experimental and disabled by default. | Claude Code hook |
+| **Usage analyzer** | Summarizes selected transcript usage fields and compares baseline versus optimized reports. | Yes, with transcript data |
+
+The source code is in [`token_booster/`](token_booster/) and the CLI is [`scripts/tb.py`](scripts/tb.py). No separate inference API is required for the local analysis.
+
+## What the tests actually show
+
+These figures come from **synthetic offline experiments**, not an authenticated Claude Code benchmark:
+
+| Local check | Observed result | Important caveat |
+| --- | --- | --- |
+| Python test suite | **139 tests passed** in the packaged local release | Not equivalent to a live Claude Code compatibility test |
+| Simulated repeated reads | **24 / 24** first unchanged duplicate reads intercepted | Blocking a read can cause a retry or alter agent behavior |
+| Large successful example log | **92.34% fewer UTF-8 output bytes** | One synthetic fixture; **not** measured model-token savings |
+| Exact selection vs. simple greedy | **139 better / 261 tied / 0 worse** over 400 synthetic cases | Only for the defined relevance/byte-budget objective |
+
+Reproduce the experiments:
 
 ```bash
 python3 scripts/benchmark_v5.py
+python3 scripts/offline_hook_benchmark.py
 ```
 
-It records *estimated avoided file bytes*, not model tokens. Replacing tool
-responses can also affect answer quality, which these offline tests do not measure.
+Read [the benchmark summary](BENCHMARK.md) and [methodology](METHODOLOGY.md) before interpreting the results.
 
-## Using it with Claude Code
+**What isn't proven yet:** lower total token usage, lower costs, improved code quality, zero regressions, or superiority over other Claude Code plugins. We want to measure those rather than guess.
 
-After installing Claude Code separately, run it with the absolute path to this
-repository:
+## Optional Claude Code integration
+
+Claude Code must be installed separately. The CLI tools above do not require it.
 
 ```bash
 claude --plugin-dir /absolute/path/to/token-booster
 ```
 
-You can enable each hook behavior separately:
+All automatic behaviors are opt-in:
 
 ```bash
-# Compact only eligible successful test output.
-TOKEN_BOOSTER_AUTO=1 claude --plugin-dir /absolute/path/to/token-booster
-
-# Observe repeated Read requests without changing tool responses.
+# Inspect duplicate reads without blocking them.
 TOKEN_BOOSTER_READ_CACHE=1 claude --plugin-dir /absolute/path/to/token-booster
 
-# Experimental: deny at most one identical unchanged full-file reread.
+# Compact only eligible successful Bash test output.
+TOKEN_BOOSTER_AUTO=1 claude --plugin-dir /absolute/path/to/token-booster
+
+# EXPERIMENTAL: block at most one unchanged duplicate full-file read.
 TOKEN_BOOSTER_READ_CACHE=1 TOKEN_BOOSTER_READ_BLOCK=1 \
   claude --plugin-dir /absolute/path/to/token-booster
 ```
 
-**Use observation mode first.** A repeated Read is not necessarily redundant:
-Claude may legitimately need to review a file again. The blocker skips partial
-Reads, symbolic links and sensitive-looking paths, and fails open on uncertainty.
-Disable it by removing `TOKEN_BOOSTER_READ_BLOCK=1` and restarting Claude.
+The Read-cache locking implementation targets **Linux, macOS, and WSL** (`fcntl`). Start with **monitor-only mode**. Range reads, symlinks, and uncertain cases are deliberately handled conservatively. Read [SECURITY.md](SECURITY.md) before enabling blocking or automatic output modification.
 
-## Command reference
+## Help test it in real projects
 
-```bash
-python3 scripts/tb.py doctor
-python3 scripts/tb.py cache-stats
-python3 scripts/tb.py outline token_booster/context.py --root .
-python3 scripts/tb.py usage /path/to/session.jsonl
-python3 scripts/tb.py compare-usage /path/to/baseline.jsonl /path/to/optimized.jsonl
-```
+This is where outside contributors can make the biggest difference:
 
-Available Claude Code skills include `plan`, `outline`, `focus`, `optimize`,
-`audit`, `benchmark`, `cache` and `doctor`; see `skills/` for details.
+1. **Test a real codebase:** Does relevance search surface the right files?
+2. **Try an A/B workflow:** Same repository, tasks, model, and quality checks with and without the plugin.
+3. **Challenge the safety logic:** Find cases where logs should not be compressed or a repeated read should be allowed.
+4. **Share a reproducible report:** Include the task, tool versions, outcome, and anonymized input/output token usage where available.
 
-## What the planner optimizes
+[**Open an issue**](https://github.com/cancanabi/token-booster/issues/new) · [Read contribution guidelines](CONTRIBUTING.md) · [Review the architecture](docs/architecture.md)
 
-The bounded planner solves a 0/1 selection problem: maximize the sum of
-BM25-derived integer relevance scores subject to a UTF-8 preview-byte budget.
-The objective is **not** actual token cost, repository comprehension or task
-success. See [Benchmark methodology](METHODOLOGY.md).
+If you find the approach useful, starring the repository helps other developers discover it. Constructive criticism, failed cases, and independent benchmarks are especially welcome.
 
-## Privacy and safety
+## Project status & license
 
-Project scanning excludes several sensitive filename patterns, symlinks and
-out-of-root paths, but filename screening cannot detect every secret stored in
-ordinary source files. Avoid scanning confidential repositories without review.
-The Read cache stores metadata hashes, not source content. Consult
-[SECURITY.md](SECURITY.md) for limitations and the shutdown procedure.
+**Status:** experimental/open source. Offline functionality has local tests; Claude Code integration and real token savings require external validation. This toolkit cannot create free Claude tokens, change a provider's limits, or guarantee savings.
 
-## Development
-
-```bash
-python3 -m unittest discover -s tests -q
-bash scripts/test_v5.sh
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[technical design](docs/architecture.md). CI runs the standard-library test
-suite on supported Python versions; it is not a live Claude Code integration test.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+**License:** [MIT](LICENSE). See [SECURITY.md](SECURITY.md) for sensitive-data caveats.
