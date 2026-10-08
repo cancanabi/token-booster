@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - token-booster-github-ready.zip
+      - .github/workflows/import-archive.yml
   workflow_dispatch:
 
 permissions:
@@ -44,8 +45,9 @@ jobs:
                   if (item.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
                       raise SystemExit("Symlinks are not allowed.")
                   relative = Path(*name.parts[1:])
-                  if str(relative) == ".github/workflows/import-archive.yml":
-                      raise SystemExit("Cannot overwrite bootstrap workflow.")
+                  if relative.parts[:2] == (".github", "workflows"):
+                      print(f"Skipping workflow file: {relative}")
+                      continue
                   destination = Path.cwd() / relative
                   destination.parent.mkdir(parents=True, exist_ok=True)
                   destination.write_bytes(package.read(item))
